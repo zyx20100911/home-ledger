@@ -1,27 +1,18 @@
 <script setup lang="ts">
 import { RouterView } from 'vue-router';
-import {
-  dateZhCN,
-  NConfigProvider,
-  NDialogProvider,
-  NMessageProvider,
-  zhCN,
-  type GlobalThemeOverrides,
-} from 'naive-ui';
+import { dateZhCN, NConfigProvider, NDialogProvider, NMessageProvider, zhCN } from 'naive-ui';
+import { useThemeStore } from '@/stores/theme';
 
-const themeOverrides: GlobalThemeOverrides = {
-  common: {
-    primaryColor: '#059669',
-    primaryColorHover: '#047857',
-    primaryColorPressed: '#065f46',
-    primaryColorSuppl: '#10b981',
-    borderRadius: '8px',
-  },
-};
+const themeStore = useThemeStore();
 </script>
 
 <template>
-  <NConfigProvider :locale="zhCN" :date-locale="dateZhCN" :theme-overrides="themeOverrides">
+  <NConfigProvider
+    :locale="zhCN"
+    :date-locale="dateZhCN"
+    :theme="themeStore.naiveTheme"
+    :theme-overrides="themeStore.naiveThemeOverrides"
+  >
     <NDialogProvider>
       <NMessageProvider>
         <RouterView />

@@ -57,6 +57,12 @@ export interface AccountDTO {
   /** 精确金额字符串，例如 "1280.50"（信用卡/负债欠款可为负数，例如 "-520.00"） */
   balance: string;
   includeInNetWorth: boolean;
+  /** 承保/所属机构（如平安保险、上海医保局） */
+  institution?: string | null;
+  /** 保额（仅商业保险常用，精确金额字符串） */
+  coverageAmount?: string | null;
+  /** 续保/到期日 (ISO 8601) */
+  renewalDate?: string | null;
   icon?: string | null;
   note?: string | null;
   isArchived: boolean;
@@ -161,4 +167,24 @@ export interface OverviewReportDTO {
   budgetUsagePercent: number | null;
   expenseByCategory: CategoryBreakdownItem[];
   monthlyTrend: MonthlyTrendItem[];
+}
+
+export interface BatchDeleteTransactionsResult {
+  deletedCount: number;
+  ids: string[];
+}
+
+export interface BatchUpdateTransactionsResult {
+  updatedCount: number;
+  ids: string[];
+}
+
+export interface BatchImportTransactionsResult {
+  importedCount: number;
+}
+
+export interface BatchImportAccountsResult {
+  createdCount: number;
+  updatedCount: number;
+  skippedCount: number;
 }

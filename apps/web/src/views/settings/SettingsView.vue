@@ -19,15 +19,17 @@ import {
   type FamilyInviteDTO,
   type FamilyMemberDTO,
 } from '@home-ledger/shared';
-import { Copy, Plus, Trash2, UserPlus } from 'lucide-vue-next';
+import { Check, Copy, Monitor, Moon, Plus, Sun, Trash2, UserPlus } from 'lucide-vue-next';
 import { createCategory, deleteCategory } from '@/api/categories';
 import { createFamily, createFamilyInvite, joinFamily, listFamilyMembers } from '@/api/families';
 import { useAuthStore } from '@/stores/auth';
 import { useLedgerStore } from '@/stores/ledger';
+import { ACCENT_PRESETS, useThemeStore, type ThemeMode } from '@/stores/theme';
 
 const message = useMessage();
 const authStore = useAuthStore();
 const ledgerStore = useLedgerStore();
+const themeStore = useThemeStore();
 
 const members = ref<FamilyMemberDTO[]>([]);
 const latestInvite = ref<FamilyInviteDTO | null>(null);
@@ -35,10 +37,29 @@ const inviteCodeInput = ref('');
 const newFamilyName = ref('');
 const busy = ref(false);
 
+const CATEGORY_COLOR_SWATCHES = [
+  '#79c6c6',
+  '#a5f9f1',
+  '#a8c7fa',
+  '#0b57d0',
+  '#d0bcff',
+  '#f28b82',
+  '#fbbf24',
+  '#e3c38a',
+  '#74c69d',
+  '#71717a',
+];
+
+const modeCards: Array<{ value: ThemeMode; label: string; desc: string; icon: typeof Sun }> = [
+  { value: 'light', label: '浅色模式', desc: '明亮通透，适合日间对账', icon: Sun },
+  { value: 'dark', label: '深色模式', desc: '成熟低疲劳暗黑灰阶', icon: Moon },
+  { value: 'system', label: '跟随系统', desc: '自动匹配操作系统外观', icon: Monitor },
+];
+
 const newCategory = reactive({
   name: '',
   type: CategoryType.EXPENSE as CategoryType,
-  color: '#10b981',
+  color: '#79c6c6',
 });
 
 const canManage = computed(() => {
@@ -52,6 +73,10 @@ const expenseCategories = computed(() =>
 const incomeCategories = computed(() =>
   ledgerStore.categories.filter((c) => c.type === CategoryType.INCOME),
 );
+
+function getInitial(name: string): string {
+  return (name.trim() || 'U').slice(0, 1).toUpperCase();
+}
 
 async function loadMembers(): Promise<void> {
   const familyId = authStore.currentFamilyId;
@@ -181,14 +206,87 @@ watch(
 
 <template>
   <div class="space-y-6">
+    <!-- 外观与主题偏好 -->
+    <section class="tonal-surface p-6">
+      <div>
+        <h2 class="text-base font-semibold text-[var(--text-primary)]">外观与主题偏好</h2>
+        <p class="mt-0.5 text-xs text-[var(--text-muted)]">
+          选择深浅外观与成熟 Tonal 主题方案，偏好将自动保存至本地浏览器
+        </p>
+      </div>
+
+      <!-- 明暗模式选择 -->
+      <div class="mt-5">
+        <div class="mb-2.5 text-xs font-medium text-[var(--text-secondary)]">外观模式</div>
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <button
+            v-for="item in modeCards"
+            :key="item.value"
+            type="button"
+            class="flex cursor-pointer items-center justify-between gap-3 rounded-2xl p-3.5 text-left transition-colors"
+            :class="
+              themeStore.mode === item.value
+                ? 'bg-[var(--accent-tonal)] text-[var(--accent-text)]'
+                : 'bg-[var(--surface-high)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+            "
+            @click="themeStore.setMode(item.value)"
+          >
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 text-xs font-semibold">
+                <component :is="item.icon" class="h-3.5 w-3.5 shrink-0" />
+                <span>{{ item.label }}</span>
+              </div>
+              <p class="mt-1 text-[11px] opacity-75">{{ item.desc }}</p>
+            </div>
+            <Check v-if="themeStore.mode === item.value" class="h-4 w-4 shrink-0" />
+          </button>
+        </div>
+      </div>
+
+      <!-- 4 套主题方案选择 -->
+      <div class="mt-6">
+        <div class="mb-2.5 text-xs font-medium text-[var(--text-secondary)]">主题配色方案</div>
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <button
+            v-for="preset in ACCENT_PRESETS"
+            :key="preset.key"
+            type="button"
+            class="flex cursor-pointer items-center gap-3.5 rounded-2xl p-3.5 text-left transition-colors"
+            :class="
+              themeStore.accent === preset.key
+                ? 'bg-[var(--accent-tonal)] text-[var(--accent-text)]'
+                : 'bg-[var(--surface-high)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+            "
+            @click="themeStore.setAccent(preset.key)"
+          >
+            <span class="flex shrink-0 items-center -space-x-2">
+              <span
+                class="h-7 w-7 rounded-full ring-1 ring-white/15"
+                :style="{ backgroundColor: preset.surfaceSwatch }"
+              />
+              <span
+                class="h-7 w-7 rounded-full ring-2 ring-[var(--surface-container)]"
+                :style="{ backgroundColor: preset.swatch }"
+              />
+            </span>
+            <div class="min-w-0 flex-1">
+              <div class="text-xs font-semibold">{{ preset.name }}</div>
+              <div class="truncate text-[11px] opacity-75">{{ preset.description }}</div>
+            </div>
+            <Check v-if="themeStore.accent === preset.key" class="h-4 w-4 shrink-0" />
+          </button>
+        </div>
+      </div>
+    </section>
+
     <!-- 家庭成员与邀请 -->
-    <section class="rounded-xl border border-slate-200 bg-white p-6 shadow-2xs">
+    <section class="tonal-surface p-6">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 class="text-base font-semibold text-slate-900">
+          <h2 class="text-base font-semibold text-[var(--text-primary)]">
             家庭成员（{{ authStore.currentFamily?.name }}）
           </h2>
-          <p class="mt-0.5 text-xs text-slate-500">
+          <p class="mt-0.5 text-xs text-[var(--text-muted)]">
             同一家庭的成员共同维护账本，按角色区分管理与记账权限
           </p>
         </div>
@@ -206,11 +304,11 @@ watch(
 
       <div
         v-if="latestInvite"
-        class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm"
+        class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[var(--accent-tonal)] px-4 py-3 text-sm text-[var(--accent-text)]"
       >
         <div>
-          <span class="text-xs text-emerald-700">最新邀请码（7 天内有效）：</span>
-          <strong class="ml-1 font-mono text-base tracking-widest text-emerald-900">
+          <span class="text-xs font-medium">最新邀请码（7 天内有效）：</span>
+          <strong class="ml-1.5 font-mono text-base tracking-widest text-[var(--text-primary)]">
             {{ latestInvite.code }}
           </strong>
         </div>
@@ -220,15 +318,22 @@ watch(
         </NButton>
       </div>
 
-      <div class="mt-4 divide-y divide-slate-100">
+      <div class="mt-4 divide-y divide-[var(--hairline)]">
         <div
           v-for="m in members"
           :key="m.id"
-          class="flex items-center justify-between py-3 text-sm"
+          class="flex items-center justify-between py-3.5 text-sm"
         >
-          <div>
-            <div class="font-medium text-slate-900">{{ m.nickname }}</div>
-            <div class="text-xs text-slate-400">{{ m.email }}</div>
+          <div class="flex min-w-0 items-center gap-3">
+            <div
+              class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent-tonal)] text-xs font-semibold text-[var(--accent-text)]"
+            >
+              {{ getInitial(m.nickname) }}
+            </div>
+            <div class="min-w-0">
+              <div class="truncate font-medium text-[var(--text-primary)]">{{ m.nickname }}</div>
+              <div class="truncate text-xs text-[var(--text-muted)]">{{ m.email }}</div>
+            </div>
           </div>
           <NTag size="small" :bordered="false" :type="m.role === 'OWNER' ? 'success' : 'default'">
             {{ FAMILY_ROLE_LABELS[m.role] }}
@@ -237,42 +342,57 @@ watch(
       </div>
 
       <!-- 加入或新建家庭 -->
-      <div class="mt-6 grid grid-cols-1 gap-4 border-t border-slate-100 pt-5 md:grid-cols-2">
-        <div class="flex gap-2">
-          <NInput v-model:value="inviteCodeInput" placeholder="输入其他家庭的邀请码..." />
-          <NButton :loading="busy" @click="handleJoinFamily">加入家庭</NButton>
+      <div class="mt-5 grid grid-cols-1 gap-4 border-t border-[var(--hairline)] pt-5 md:grid-cols-2">
+        <div class="flex items-center gap-2">
+          <div class="min-w-0 flex-1">
+            <NInput v-model:value="inviteCodeInput" placeholder="输入其他家庭的邀请码..." />
+          </div>
+          <NButton class="shrink-0" :loading="busy" @click="handleJoinFamily">加入家庭</NButton>
         </div>
-        <div class="flex gap-2">
-          <NInput v-model:value="newFamilyName" placeholder="新建独立家庭账本名称..." />
-          <NButton :loading="busy" @click="handleCreateFamily">新建账本</NButton>
+        <div class="flex items-center gap-2">
+          <div class="min-w-0 flex-1">
+            <NInput v-model:value="newFamilyName" placeholder="新建独立家庭账本名称..." />
+          </div>
+          <NButton class="shrink-0" :loading="busy" @click="handleCreateFamily">新建账本</NButton>
         </div>
       </div>
     </section>
 
     <!-- 自定义收支分类管理 -->
-    <section class="rounded-xl border border-slate-200 bg-white p-6 shadow-2xs">
-      <h2 class="text-base font-semibold text-slate-900">收支分类管理</h2>
-      <p class="mt-0.5 text-xs text-slate-500">
+    <section class="tonal-surface p-6">
+      <h2 class="text-base font-semibold text-[var(--text-primary)]">收支分类管理</h2>
+      <p class="mt-0.5 text-xs text-[var(--text-muted)]">
         系统已内置常用家庭分类，你也可以按家庭习惯补充自定义分类
       </p>
 
       <div class="mt-4 flex flex-wrap items-center gap-3">
-        <NSelect
-          v-model:value="newCategory.type"
-          :options="[
-            { label: '支出分类', value: CategoryType.EXPENSE },
-            { label: '收入分类', value: CategoryType.INCOME },
-          ]"
-          class="w-32"
-        />
-        <NInput v-model:value="newCategory.name" placeholder="输入自定义分类名称" class="w-48" />
-        <NColorPicker
-          v-model:value="newCategory.color"
-          :show-alpha="false"
-          :modes="['hex']"
-          class="w-28"
-        />
-        <NButton type="primary" size="small" :loading="busy" @click="handleAddCategory">
+        <div class="w-36 shrink-0">
+          <NSelect
+            v-model:value="newCategory.type"
+            :options="[
+              { label: '支出分类', value: CategoryType.EXPENSE },
+              { label: '收入分类', value: CategoryType.INCOME },
+            ]"
+          />
+        </div>
+        <div class="w-56 shrink-0">
+          <NInput v-model:value="newCategory.name" placeholder="输入自定义分类名称" />
+        </div>
+        <div class="w-32 shrink-0">
+          <NColorPicker
+            v-model:value="newCategory.color"
+            :show-alpha="false"
+            :modes="['hex']"
+            :swatches="CATEGORY_COLOR_SWATCHES"
+          />
+        </div>
+        <NButton
+          type="primary"
+          size="medium"
+          class="shrink-0"
+          :loading="busy"
+          @click="handleAddCategory"
+        >
           <template #icon><Plus class="h-4 w-4" /></template>
           添加分类
         </NButton>
@@ -280,21 +400,29 @@ watch(
 
       <NTabs class="mt-5" type="line">
         <NTabPane name="expense" :tab="`支出分类 (${expenseCategories.length})`">
-          <div class="flex flex-wrap gap-2 pt-2">
+          <div class="flex flex-wrap gap-2.5 pt-2">
             <div
               v-for="cat in expenseCategories"
               :key="cat.id"
-              class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs"
+              class="inline-flex items-center gap-2 rounded-full bg-[var(--surface-high)] px-3.5 py-1.5 text-xs"
             >
               <span
-                class="h-2.5 w-2.5 rounded-full"
+                class="h-2 w-2 shrink-0 rounded-full"
                 :style="{ backgroundColor: cat.color || '#64748b' }"
               />
-              <span class="font-medium text-slate-700">{{ cat.name }}</span>
-              <span v-if="cat.isSystem" class="text-[10px] text-slate-400">系统</span>
+              <span class="font-medium text-[var(--text-primary)]">{{ cat.name }}</span>
+              <span
+                v-if="cat.isSystem"
+                class="rounded-full bg-[var(--surface-container)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]"
+              >
+                系统
+              </span>
               <NPopconfirm v-else @positive-click="handleDeleteCategory(cat.id)">
                 <template #trigger>
-                  <button type="button" class="text-slate-400 hover:text-rose-600">
+                  <button
+                    type="button"
+                    class="cursor-pointer text-[var(--text-muted)] transition-colors hover:text-[var(--negative)]"
+                  >
                     <Trash2 class="h-3 w-3" />
                   </button>
                 </template>
@@ -305,21 +433,29 @@ watch(
         </NTabPane>
 
         <NTabPane name="income" :tab="`收入分类 (${incomeCategories.length})`">
-          <div class="flex flex-wrap gap-2 pt-2">
+          <div class="flex flex-wrap gap-2.5 pt-2">
             <div
               v-for="cat in incomeCategories"
               :key="cat.id"
-              class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs"
+              class="inline-flex items-center gap-2 rounded-full bg-[var(--surface-high)] px-3.5 py-1.5 text-xs"
             >
               <span
-                class="h-2.5 w-2.5 rounded-full"
+                class="h-2 w-2 shrink-0 rounded-full"
                 :style="{ backgroundColor: cat.color || '#16a34a' }"
               />
-              <span class="font-medium text-slate-700">{{ cat.name }}</span>
-              <span v-if="cat.isSystem" class="text-[10px] text-slate-400">系统</span>
+              <span class="font-medium text-[var(--text-primary)]">{{ cat.name }}</span>
+              <span
+                v-if="cat.isSystem"
+                class="rounded-full bg-[var(--surface-container)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]"
+              >
+                系统
+              </span>
               <NPopconfirm v-else @positive-click="handleDeleteCategory(cat.id)">
                 <template #trigger>
-                  <button type="button" class="text-slate-400 hover:text-rose-600">
+                  <button
+                    type="button"
+                    class="cursor-pointer text-[var(--text-muted)] transition-colors hover:text-[var(--negative)]"
+                  >
                     <Trash2 class="h-3 w-3" />
                   </button>
                 </template>

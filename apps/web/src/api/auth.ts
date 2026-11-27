@@ -14,6 +14,10 @@ export function login(payload: { email: string; password: string }): Promise<Aut
   return requestData(http.post<ApiResponse<AuthResponseDTO>>('/auth/login', payload));
 }
 
+export function fetchAuthConfig(): Promise<{ allowRegistration: boolean }> {
+  return requestData(http.get<ApiResponse<{ allowRegistration: boolean }>>('/auth/config'));
+}
+
 export function fetchMe(): Promise<{ user: UserDTO; families: FamilyDTO[] }> {
   return requestData(http.get<ApiResponse<{ user: UserDTO; families: FamilyDTO[] }>>('/auth/me'));
 }

@@ -1,6 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { TransactionType } from '@prisma/client';
+import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsDateString,
   IsEnum,
@@ -9,6 +12,7 @@ import {
   Matches,
   MaxLength,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 import { PaginationQueryDto } from '@/common/dto/pagination.dto';
 
@@ -130,4 +134,83 @@ export class QueryTransactionsDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   keyword?: string;
+}
+
+export class ExportTransactionsDto {
+  @ApiPropertyOptional({ enum: TransactionType })
+  @IsOptional()
+  @IsEnum(TransactionType)
+  type?: TransactionType;
+
+  @ApiPropertyOptional({ description: '按账户筛选（含转出与转入）' })
+  @IsOptional()
+  @IsString()
+  accountId?: string;
+
+  @ApiPropertyOptional({ description: '按分类筛选' })
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
+
+  @ApiPropertyOptional({ description: '起始日期 ISO 字符串' })
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @ApiPropertyOptional({ description: '结束日期 ISO 字符串' })
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+
+  @ApiPropertyOptional({ description: '备注关键词搜索' })
+  @IsOptional()
+  @IsString()
+  keyword?: string;
+
+  @ApiPropertyOptional({ description: '指定导出的流水 ID 列表（逗号分隔）' })
+  @IsOptional()
+  @IsString()
+  ids?: string;
+}
+
+export class BatchDeleteTransactionsDto {
+  @ApiProperty({ type: [String], description: '待删除流水 ID 列表（1~200 条）' })
+  @IsArray()
+  @ArrayMinSize(1, { message: '请至少选择一条流水' })
+  @ArrayMaxSize(200, { message: '单次批量删除不能超过 200 条' })
+  @IsString({ each: true })
+  @MinLength(1, { each: true })
+  ids: string[];
+}
+
+export class BatchUpdateTransactionsDto {
+  @ApiProperty({ type: [String], description: '待修改流水 ID 列表（1~200 条）' })
+  @IsArray()
+  @ArrayMinSize(1, { message: '请至少选择一条流水' })
+  @ArrayMaxSize(200, { message: '单次批量修改不能超过 200 条' })
+  @IsString({ each: true })
+  @MinLength(1, { each: true })
+  ids: string[];
+
+  @ApiPropertyOptional({ description: '统一修改为的分类 ID' })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  categoryId?: string;
+
+  @ApiPropertyOptional({ description: '统一修改为的资金账户 ID' })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  accountId?: string;
+}
+
+export class BatchImportTransactionsDto {
+  @ApiProperty({ type: [CreateTransactionDto], description: '批量导入的流水列表（1~500 条）' })
+  @IsArray()
+  @ArrayMinSize(1, { message: '请至少提供一条待导入流水' })
+  @ArrayMaxSize(500, { message: '单次最多导入 500 条流水' })
+  @ValidateNested({ each: true })
+  @Type(() => CreateTransactionDto)
+  items: CreateTransactionDto[];
 }

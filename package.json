@@ -27,7 +27,11 @@
     "db:migrate": "dotenv -c -- pnpm --filter @home-ledger/api prisma:migrate",
     "db:push": "dotenv -c -- pnpm --filter @home-ledger/api prisma:push",
     "db:seed": "dotenv -c -- pnpm --filter @home-ledger/api prisma:seed",
-    "db:studio": "dotenv -c -- pnpm --filter @home-ledger/api prisma:studio"
+    "db:studio": "dotenv -c -- pnpm --filter @home-ledger/api prisma:studio",
+    "prod:up": "docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build",
+    "prod:tunnel": "docker compose -f docker-compose.prod.yml --env-file .env.prod --profile tunnel up -d --build",
+    "prod:down": "docker compose -f docker-compose.prod.yml --env-file .env.prod --profile tunnel down",
+    "prod:logs": "docker compose -f docker-compose.prod.yml --env-file .env.prod --profile tunnel logs -f"
   },
   "devDependencies": {
     "@eslint/js": "^9.22.0",

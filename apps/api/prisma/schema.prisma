@@ -29,6 +29,9 @@ enum AccountType {
   WECHAT
   CREDIT_CARD
   INVESTMENT
+  MEDICAL_INSURANCE
+  SOCIAL_SECURITY
+  INSURANCE
   DEBT
   OTHER
 }
@@ -129,6 +132,9 @@ model Account {
   currency          String      @default("CNY")
   balance           Decimal     @default(0) @db.Decimal(14, 2)
   includeInNetWorth Boolean     @default(true) @map("include_in_net_worth")
+  institution       String?
+  coverageAmount    Decimal?    @map("coverage_amount") @db.Decimal(14, 2)
+  renewalDate       DateTime?   @map("renewal_date")
   icon              String?
   note              String?
   isArchived        Boolean     @default(false) @map("is_archived")

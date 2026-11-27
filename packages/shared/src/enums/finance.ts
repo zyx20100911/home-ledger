@@ -22,6 +22,9 @@ export const AccountType = {
   WECHAT: 'WECHAT',
   CREDIT_CARD: 'CREDIT_CARD',
   INVESTMENT: 'INVESTMENT',
+  MEDICAL_INSURANCE: 'MEDICAL_INSURANCE',
+  SOCIAL_SECURITY: 'SOCIAL_SECURITY',
+  INSURANCE: 'INSURANCE',
   DEBT: 'DEBT',
   OTHER: 'OTHER',
 } as const;
@@ -34,8 +37,35 @@ export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   WECHAT: '微信零钱',
   CREDIT_CARD: '信用卡',
   INVESTMENT: '理财/投资',
+  MEDICAL_INSURANCE: '医保账户',
+  SOCIAL_SECURITY: '社保/公积金',
+  INSURANCE: '商业保险',
   DEBT: '借贷/负债',
   OTHER: '其他账户',
+};
+
+/** 资金账户分组 */
+export type AccountGroupKey = 'liquid' | 'investment' | 'protection' | 'liability';
+
+export const ACCOUNT_GROUP_LABELS: Record<AccountGroupKey, string> = {
+  liquid: '日常流动资金',
+  investment: '投资与理财',
+  protection: '保障与专户（医保 / 社保 / 保险）',
+  liability: '信用与负债',
+};
+
+export const ACCOUNT_TYPE_GROUP_MAP: Record<AccountType, AccountGroupKey> = {
+  CASH: 'liquid',
+  BANK_CARD: 'liquid',
+  ALIPAY: 'liquid',
+  WECHAT: 'liquid',
+  OTHER: 'liquid',
+  INVESTMENT: 'investment',
+  MEDICAL_INSURANCE: 'protection',
+  SOCIAL_SECURITY: 'protection',
+  INSURANCE: 'protection',
+  CREDIT_CARD: 'liability',
+  DEBT: 'liability',
 };
 
 /** 交易类型 */

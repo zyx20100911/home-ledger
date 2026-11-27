@@ -1,0 +1,30 @@
+FROM node:22-alpine
+
+# Prisma 6 在 Alpine 环境需要 OpenSSL
+RUN apk add --no-cache openssl
+
+RUN corepack enable && corepack prepare pnpm@12.21.0 --activate
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/tsconfig/package.json packages/tsconfig/package.json
+COPY packages/shared/package.json packages/shared/package.json
+COPY apps/api/package.json apps/api/package.json
+
+RUN pnpm install --frozen-lockfile --filter @home-ledger/api...
+
+COPY packages ./packages
+COPY apps/api ./apps/api
+COPY deploy/api-entrypoint.sh /app/deploy/api-entrypoint.sh
+
+RUN pnpm --filter @home-ledger/shared build \
+  && pnpm --filter @home-ledger/api prisma:generate \
+  && pnpm --filter @home-ledger/api build \
+  && sed -i 's/\r$//' /app/deploy/api-entrypoint.sh \
+  && chmod +x /app/deploy/api-entrypoint.sh
+
+ENV NODE_ENV=production
+EXPOSE 3000
+
+ENTRYPOINT ["/app/deploy/api-entrypoint.sh"]

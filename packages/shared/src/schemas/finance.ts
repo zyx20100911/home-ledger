@@ -6,6 +6,11 @@ export const signedMoneyStringSchema = z
   .trim()
   .regex(/^-?\d{1,12}(\.\d{1,2})?$/, '金额格式不正确，最多保留两位小数');
 
+export const nonNegativeMoneyStringSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{1,12}(\.\d{1,2})?$/, '金额格式不正确，最多保留两位小数');
+
 export const createAccountSchema = z.object({
   name: z.string().trim().min(1, '请输入账户名称').max(40, '账户名称不能超过 40 字'),
   type: z.enum([
@@ -15,11 +20,17 @@ export const createAccountSchema = z.object({
     AccountType.WECHAT,
     AccountType.CREDIT_CARD,
     AccountType.INVESTMENT,
+    AccountType.MEDICAL_INSURANCE,
+    AccountType.SOCIAL_SECURITY,
+    AccountType.INSURANCE,
     AccountType.DEBT,
     AccountType.OTHER,
   ]),
   balance: signedMoneyStringSchema.default('0.00'),
   includeInNetWorth: z.boolean().default(true),
+  institution: z.string().trim().max(60, '机构名称不能超过 60 字').optional().nullable(),
+  coverageAmount: nonNegativeMoneyStringSchema.optional().nullable(),
+  renewalDate: z.string().datetime({ message: '续保日期格式需为 ISO 8601' }).optional().nullable(),
   note: z.string().max(200).optional().nullable(),
 });
 

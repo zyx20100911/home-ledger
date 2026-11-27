@@ -1,12 +1,22 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, TransactionType } from '@prisma/client';
-import type { PaginatedData, TransactionDTO } from '@home-ledger/shared';
-import { centsToYuan, yuanToCents } from '@home-ledger/shared';
+import type {
+  BatchDeleteTransactionsResult,
+  BatchImportTransactionsResult,
+  BatchUpdateTransactionsResult,
+  PaginatedData,
+  TransactionDTO,
+} from '@home-ledger/shared';
+import { TRANSACTION_TYPE_LABELS, centsToYuan, yuanToCents } from '@home-ledger/shared';
 import { PrismaService } from '@/prisma/prisma.service';
 import { FamilyAccessService } from '@/modules/families/family-access.service';
 import { computeBalanceDeltasCents, mergeBalanceDeltas } from './balance-delta';
 import type {
+  BatchDeleteTransactionsDto,
+  BatchImportTransactionsDto,
+  BatchUpdateTransactionsDto,
   CreateTransactionDto,
+  ExportTransactionsDto,
   QueryTransactionsDto,
   UpdateTransactionDto,
 } from './dto/transaction.dto';
@@ -38,26 +48,7 @@ export class TransactionsService {
 
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
-
-    const where: Prisma.TransactionWhereInput = {
-      familyId,
-      ...(query.type ? { type: query.type } : {}),
-      ...(query.categoryId ? { categoryId: query.categoryId } : {}),
-      ...(query.accountId
-        ? { OR: [{ accountId: query.accountId }, { toAccountId: query.accountId }] }
-        : {}),
-      ...(query.startDate || query.endDate
-        ? {
-            occurredAt: {
-              ...(query.startDate ? { gte: new Date(query.startDate) } : {}),
-              ...(query.endDate ? { lte: new Date(query.endDate) } : {}),
-            },
-          }
-        : {}),
-      ...(query.keyword?.trim()
-        ? { note: { contains: query.keyword.trim(), mode: 'insensitive' } }
-        : {}),
-    };
+    const where = this.buildWhere(familyId, query);
 
     const [total, items] = await this.prisma.$transaction([
       this.prisma.transaction.count({ where }),
@@ -76,6 +67,58 @@ export class TransactionsService {
       page,
       pageSize,
       totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    };
+  }
+
+  async exportCsv(
+    familyId: string,
+    userId: string,
+    query: ExportTransactionsDto,
+  ): Promise<{ filename: string; content: string }> {
+    await this.access.assertMember(familyId, userId);
+
+    const ids = query.ids
+      ? query.ids
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean)
+      : undefined;
+
+    const where = this.buildWhere(familyId, { ...query, ids });
+
+    const records = await this.prisma.transaction.findMany({
+      where,
+      include: TRANSACTION_INCLUDE,
+      orderBy: [{ occurredAt: 'desc' }, { createdAt: 'desc' }],
+      take: 10_000,
+    });
+
+    const header = ['时间', '类型', '分类', '资金账户', '转入账户', '金额', '备注', '记账人'];
+    const lines = [
+      header.join(','),
+      ...records.map((record) =>
+        [
+          this.formatCsvDateTime(record.occurredAt),
+          TRANSACTION_TYPE_LABELS[record.type] ?? record.type,
+          record.type === TransactionType.TRANSFER ? '' : (record.category?.name ?? ''),
+          record.account?.name ?? '',
+          record.type === TransactionType.TRANSFER ? (record.toAccount?.name ?? '') : '',
+          record.amount.toFixed(2),
+          record.note ?? '',
+          record.createdBy?.nickname ?? '',
+        ]
+          .map((cell) => this.escapeCsvCell(cell))
+          .join(','),
+      ),
+    ];
+
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const datePart = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+
+    return {
+      filename: `home-ledger-transactions-${datePart}.csv`,
+      content: `\uFEFF${lines.join('\r\n')}`,
     };
   }
 
@@ -239,6 +282,281 @@ export class TransactionsService {
     });
 
     return { id: transactionId };
+  }
+
+  async batchDelete(
+    familyId: string,
+    userId: string,
+    dto: BatchDeleteTransactionsDto,
+  ): Promise<BatchDeleteTransactionsResult> {
+    await this.access.assertCanWrite(familyId, userId);
+
+    const uniqueIds = [...new Set(dto.ids)];
+    const records = await this.prisma.transaction.findMany({
+      where: { id: { in: uniqueIds }, familyId },
+    });
+    if (records.length !== uniqueIds.length) {
+      throw new NotFoundException('部分交易流水不存在或不属于当前家庭');
+    }
+
+    let reverseDeltas = new Map<string, number>();
+    for (const record of records) {
+      const oldDelta = computeBalanceDeltasCents({
+        type: record.type,
+        amount: record.amount.toFixed(2),
+        accountId: record.accountId,
+        toAccountId: record.toAccountId,
+      });
+      reverseDeltas = mergeBalanceDeltas(reverseDeltas, oldDelta, -1);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.transaction.deleteMany({
+        where: { id: { in: uniqueIds }, familyId },
+      });
+      await this.applyDeltas(tx, reverseDeltas);
+    });
+
+    return {
+      deletedCount: records.length,
+      ids: records.map((r) => r.id),
+    };
+  }
+
+  async batchUpdate(
+    familyId: string,
+    userId: string,
+    dto: BatchUpdateTransactionsDto,
+  ): Promise<BatchUpdateTransactionsResult> {
+    await this.access.assertCanWrite(familyId, userId);
+
+    if (!dto.categoryId && !dto.accountId) {
+      throw new BadRequestException('请至少选择要批量修改的分类或资金账户');
+    }
+
+    const uniqueIds = [...new Set(dto.ids)];
+    const records = await this.prisma.transaction.findMany({
+      where: { id: { in: uniqueIds }, familyId },
+    });
+    if (records.length !== uniqueIds.length) {
+      throw new NotFoundException('部分交易流水不存在或不属于当前家庭');
+    }
+
+    if (dto.categoryId) {
+      const category = await this.prisma.category.findFirst({
+        where: {
+          id: dto.categoryId,
+          OR: [{ isSystem: true }, { familyId }],
+        },
+        select: { id: true, type: true },
+      });
+      if (!category) {
+        throw new BadRequestException('所选目标分类不存在或无权使用');
+      }
+
+      if (records.some((r) => r.type === TransactionType.TRANSFER)) {
+        throw new BadRequestException('转账流水不支持修改收支分类，请取消勾选转账记录');
+      }
+      if (records.some((r) => r.type !== category.type)) {
+        throw new BadRequestException('所选流水的类型与目标分类不匹配，支出与收入不能同时改同一分类');
+      }
+    }
+
+    let netDeltas = new Map<string, number>();
+    if (dto.accountId) {
+      const targetAccount = await this.prisma.account.findFirst({
+        where: { id: dto.accountId, familyId },
+        select: { id: true },
+      });
+      if (!targetAccount) {
+        throw new BadRequestException('所选目标资金账户不存在或不属于当前家庭');
+      }
+
+      for (const record of records) {
+        if (record.type === TransactionType.TRANSFER && record.toAccountId === dto.accountId) {
+          throw new BadRequestException('目标资金账户与所选转账流水的转入账户相同');
+        }
+        const amountStr = record.amount.toFixed(2);
+        const oldDelta = computeBalanceDeltasCents({
+          type: record.type,
+          amount: amountStr,
+          accountId: record.accountId,
+          toAccountId: record.toAccountId,
+        });
+        const newDelta = computeBalanceDeltasCents({
+          type: record.type,
+          amount: amountStr,
+          accountId: dto.accountId,
+          toAccountId: record.toAccountId,
+        });
+        netDeltas = mergeBalanceDeltas(netDeltas, newDelta, 1);
+        netDeltas = mergeBalanceDeltas(netDeltas, oldDelta, -1);
+      }
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.transaction.updateMany({
+        where: { id: { in: uniqueIds }, familyId },
+        data: {
+          ...(dto.categoryId ? { categoryId: dto.categoryId } : {}),
+          ...(dto.accountId ? { accountId: dto.accountId } : {}),
+        },
+      });
+      if (netDeltas.size > 0) {
+        await this.applyDeltas(tx, netDeltas);
+      }
+    });
+
+    return {
+      updatedCount: records.length,
+      ids: records.map((r) => r.id),
+    };
+  }
+
+  async batchImport(
+    familyId: string,
+    userId: string,
+    dto: BatchImportTransactionsDto,
+  ): Promise<BatchImportTransactionsResult> {
+    await this.access.assertCanWrite(familyId, userId);
+
+    const accountIds = new Set<string>();
+    const categoryIds = new Set<string>();
+    for (const item of dto.items) {
+      accountIds.add(item.accountId);
+      if (item.toAccountId) accountIds.add(item.toAccountId);
+      if (item.categoryId) categoryIds.add(item.categoryId);
+    }
+
+    const [accounts, categories] = await Promise.all([
+      this.prisma.account.findMany({
+        where: { id: { in: [...accountIds] }, familyId },
+        select: { id: true },
+      }),
+      categoryIds.size
+        ? this.prisma.category.findMany({
+            where: {
+              id: { in: [...categoryIds] },
+              OR: [{ isSystem: true }, { familyId }],
+            },
+            select: { id: true, type: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const accountIdSet = new Set(accounts.map((a) => a.id));
+    const categoryMap = new Map(categories.map((c) => [c.id, c]));
+
+    let totalDeltas = new Map<string, number>();
+    const rowsToCreate: Prisma.TransactionCreateManyInput[] = [];
+
+    for (let i = 0; i < dto.items.length; i += 1) {
+      const item = dto.items[i]!;
+      const rowLabel = `第 ${i + 1} 行`;
+
+      try {
+        this.validateTransactionRules({
+          type: item.type,
+          amount: item.amount,
+          accountId: item.accountId,
+          toAccountId: item.toAccountId ?? null,
+          categoryId: item.categoryId ?? null,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : '数据校验失败';
+        throw new BadRequestException(`${rowLabel}：${msg}`);
+      }
+
+      if (!accountIdSet.has(item.accountId)) {
+        throw new BadRequestException(`${rowLabel}：所选资金账户不存在或不属于当前家庭`);
+      }
+      if (item.type === TransactionType.TRANSFER && (!item.toAccountId || !accountIdSet.has(item.toAccountId))) {
+        throw new BadRequestException(`${rowLabel}：所选转入账户不存在或不属于当前家庭`);
+      }
+      if (item.type !== TransactionType.TRANSFER) {
+        const cat = item.categoryId ? categoryMap.get(item.categoryId) : undefined;
+        if (!cat) {
+          throw new BadRequestException(`${rowLabel}：所选分类不存在或无权使用`);
+        }
+        if (cat.type !== item.type) {
+          throw new BadRequestException(`${rowLabel}：所选分类与交易类型不匹配`);
+        }
+      }
+
+      const itemDelta = computeBalanceDeltasCents({
+        type: item.type,
+        amount: item.amount,
+        accountId: item.accountId,
+        toAccountId: item.toAccountId ?? null,
+      });
+      totalDeltas = mergeBalanceDeltas(totalDeltas, itemDelta, 1);
+
+      rowsToCreate.push({
+        familyId,
+        type: item.type,
+        amount: item.amount,
+        accountId: item.accountId,
+        toAccountId: item.type === TransactionType.TRANSFER ? (item.toAccountId ?? null) : null,
+        categoryId: item.type === TransactionType.TRANSFER ? null : (item.categoryId ?? null),
+        createdById: userId,
+        occurredAt: new Date(item.occurredAt),
+        note: item.note?.trim() || null,
+        tags: item.tags ?? [],
+      });
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.transaction.createMany({ data: rowsToCreate });
+      await this.applyDeltas(tx, totalDeltas);
+    });
+
+    return { importedCount: rowsToCreate.length };
+  }
+
+  private buildWhere(
+    familyId: string,
+    query: {
+      type?: TransactionType;
+      categoryId?: string;
+      accountId?: string;
+      startDate?: string;
+      endDate?: string;
+      keyword?: string;
+      ids?: string[];
+    },
+  ): Prisma.TransactionWhereInput {
+    return {
+      familyId,
+      ...(query.ids?.length ? { id: { in: query.ids } } : {}),
+      ...(query.type ? { type: query.type } : {}),
+      ...(query.categoryId ? { categoryId: query.categoryId } : {}),
+      ...(query.accountId
+        ? { OR: [{ accountId: query.accountId }, { toAccountId: query.accountId }] }
+        : {}),
+      ...(query.startDate || query.endDate
+        ? {
+            occurredAt: {
+              ...(query.startDate ? { gte: new Date(query.startDate) } : {}),
+              ...(query.endDate ? { lte: new Date(query.endDate) } : {}),
+            },
+          }
+        : {}),
+      ...(query.keyword?.trim()
+        ? { note: { contains: query.keyword.trim(), mode: 'insensitive' } }
+        : {}),
+    };
+  }
+
+  private formatCsvDateTime(date: Date): string {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  }
+
+  private escapeCsvCell(value: string): string {
+    if (/[",\r\n]/.test(value)) {
+      return `"${value.replace(/"/g, '""')}"`;
+    }
+    return value;
   }
 
   private validateTransactionRules(input: {

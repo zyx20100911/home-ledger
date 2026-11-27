@@ -16,6 +16,14 @@ async function bootstrap(): Promise<void> {
   const prefix = configService.get('API_PREFIX', { infer: true });
   const corsOrigin = configService.get('CORS_ORIGIN', { infer: true });
   const nodeEnv = configService.get('NODE_ENV', { infer: true });
+  const trustProxy = configService.get('TRUST_PROXY', { infer: true });
+
+  if (trustProxy) {
+    (app.getHttpAdapter().getInstance() as { set: (key: string, value: unknown) => void }).set(
+      'trust proxy',
+      1,
+    );
+  }
 
   app.setGlobalPrefix(prefix);
   app.enableShutdownHooks();

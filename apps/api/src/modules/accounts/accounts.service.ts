@@ -1,9 +1,18 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import type { AccountDTO, AccountSummaryDTO } from '@home-ledger/shared';
-import { centsToYuan, yuanToCents } from '@home-ledger/shared';
+import type { Account } from '@prisma/client';
+import type {
+  AccountDTO,
+  AccountSummaryDTO,
+  BatchImportAccountsResult,
+} from '@home-ledger/shared';
+import { ACCOUNT_TYPE_LABELS, centsToYuan, yuanToCents } from '@home-ledger/shared';
 import { PrismaService } from '@/prisma/prisma.service';
 import { FamilyAccessService } from '@/modules/families/family-access.service';
-import type { CreateAccountDto, UpdateAccountDto } from './dto/account.dto';
+import type {
+  BatchImportAccountsDto,
+  CreateAccountDto,
+  UpdateAccountDto,
+} from './dto/account.dto';
 
 @Injectable()
 export class AccountsService {
@@ -41,20 +50,7 @@ export class AccountsService {
         }
       }
 
-      return {
-        id: row.id,
-        familyId: row.familyId,
-        name: row.name,
-        type: row.type,
-        currency: row.currency,
-        balance: balanceStr,
-        includeInNetWorth: row.includeInNetWorth,
-        icon: row.icon,
-        note: row.note,
-        isArchived: row.isArchived,
-        createdAt: row.createdAt.toISOString(),
-        updatedAt: row.updatedAt.toISOString(),
-      };
+      return this.toDto(row);
     });
 
     return {
@@ -62,6 +58,53 @@ export class AccountsService {
       totalLiabilities: centsToYuan(totalLiabilitiesCents),
       netWorth: centsToYuan(totalAssetsCents - totalLiabilitiesCents),
       accounts,
+    };
+  }
+
+  async exportCsv(
+    familyId: string,
+    userId: string,
+    includeArchived = false,
+  ): Promise<{ filename: string; content: string }> {
+    const summary = await this.list(familyId, userId, includeArchived);
+    const header = [
+      '账户名称',
+      '账户类型',
+      '当前余额',
+      '计入净资产',
+      '状态',
+      '承保/所属机构',
+      '保额',
+      '续保到期日',
+      '备注',
+    ];
+
+    const lines = [
+      header.join(','),
+      ...summary.accounts.map((acc) =>
+        [
+          acc.name,
+          ACCOUNT_TYPE_LABELS[acc.type] ?? acc.type,
+          acc.balance,
+          acc.includeInNetWorth ? '是' : '否',
+          acc.isArchived ? '已归档' : '启用中',
+          acc.institution ?? '',
+          acc.coverageAmount ?? '',
+          acc.renewalDate ? acc.renewalDate.slice(0, 10) : '',
+          acc.note ?? '',
+        ]
+          .map((cell) => this.escapeCsvCell(cell))
+          .join(','),
+      ),
+    ];
+
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const datePart = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+
+    return {
+      filename: `home-ledger-accounts-${datePart}.csv`,
+      content: `\uFEFF${lines.join('\r\n')}`,
     };
   }
 
@@ -75,24 +118,14 @@ export class AccountsService {
         type: dto.type,
         balance: dto.balance ?? '0.00',
         includeInNetWorth: dto.includeInNetWorth ?? true,
+        institution: dto.institution?.trim() || null,
+        coverageAmount: dto.coverageAmount || null,
+        renewalDate: dto.renewalDate ? new Date(dto.renewalDate) : null,
         note: dto.note?.trim() || null,
       },
     });
 
-    return {
-      id: created.id,
-      familyId: created.familyId,
-      name: created.name,
-      type: created.type,
-      currency: created.currency,
-      balance: created.balance.toFixed(2),
-      includeInNetWorth: created.includeInNetWorth,
-      icon: created.icon,
-      note: created.note,
-      isArchived: created.isArchived,
-      createdAt: created.createdAt.toISOString(),
-      updatedAt: created.updatedAt.toISOString(),
-    };
+    return this.toDto(created);
   }
 
   async update(
@@ -119,24 +152,119 @@ export class AccountsService {
         ...(dto.includeInNetWorth !== undefined
           ? { includeInNetWorth: dto.includeInNetWorth }
           : {}),
+        ...(dto.institution !== undefined ? { institution: dto.institution?.trim() || null } : {}),
+        ...(dto.coverageAmount !== undefined
+          ? { coverageAmount: dto.coverageAmount || null }
+          : {}),
+        ...(dto.renewalDate !== undefined
+          ? { renewalDate: dto.renewalDate ? new Date(dto.renewalDate) : null }
+          : {}),
         ...(dto.note !== undefined ? { note: dto.note?.trim() || null } : {}),
         ...(dto.isArchived !== undefined ? { isArchived: dto.isArchived } : {}),
       },
     });
 
+    return this.toDto(updated);
+  }
+
+  async batchImport(
+    familyId: string,
+    userId: string,
+    dto: BatchImportAccountsDto,
+  ): Promise<BatchImportAccountsResult> {
+    await this.access.assertCanWrite(familyId, userId);
+
+    const strategy = dto.duplicateStrategy ?? 'update';
+    const existingList = await this.prisma.account.findMany({
+      where: { familyId },
+    });
+    const existingByName = new Map<string, Account>(
+      existingList.map((a) => [a.name.trim().toLowerCase(), a]),
+    );
+
+    let createdCount = 0;
+    let updatedCount = 0;
+    let skippedCount = 0;
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const item of dto.items) {
+        const cleanName = item.name.trim();
+        const key = cleanName.toLowerCase();
+        const matched = existingByName.get(key);
+
+        if (matched) {
+          if (strategy === 'skip') {
+            skippedCount += 1;
+            continue;
+          }
+
+          const updated = await tx.account.update({
+            where: { id: matched.id },
+            data: {
+              name: cleanName,
+              type: item.type,
+              balance: item.balance ?? '0.00',
+              includeInNetWorth: item.includeInNetWorth ?? true,
+              institution: item.institution?.trim() || null,
+              coverageAmount: item.coverageAmount || null,
+              renewalDate: item.renewalDate ? new Date(item.renewalDate) : null,
+              note: item.note?.trim() || null,
+            },
+          });
+          existingByName.set(key, updated);
+          updatedCount += 1;
+          continue;
+        }
+
+        const created = await tx.account.create({
+          data: {
+            familyId,
+            name: cleanName,
+            type: item.type,
+            balance: item.balance ?? '0.00',
+            includeInNetWorth: item.includeInNetWorth ?? true,
+            institution: item.institution?.trim() || null,
+            coverageAmount: item.coverageAmount || null,
+            renewalDate: item.renewalDate ? new Date(item.renewalDate) : null,
+            note: item.note?.trim() || null,
+          },
+        });
+        existingByName.set(key, created);
+        createdCount += 1;
+      }
+    });
+
     return {
-      id: updated.id,
-      familyId: updated.familyId,
-      name: updated.name,
-      type: updated.type,
-      currency: updated.currency,
-      balance: updated.balance.toFixed(2),
-      includeInNetWorth: updated.includeInNetWorth,
-      icon: updated.icon,
-      note: updated.note,
-      isArchived: updated.isArchived,
-      createdAt: updated.createdAt.toISOString(),
-      updatedAt: updated.updatedAt.toISOString(),
+      createdCount,
+      updatedCount,
+      skippedCount,
+    };
+  }
+
+  private escapeCsvCell(value: string): string {
+    if (/[",\r\n]/.test(value)) {
+      return `"${value.replace(/"/g, '""')}"`;
+    }
+    return value;
+  }
+
+  private toDto(row: Account): AccountDTO {
+    return {
+      id: row.id,
+      familyId: row.familyId,
+      name: row.name,
+      type: row.type,
+      currency: row.currency,
+      balance: row.balance.toFixed(2),
+      includeInNetWorth: row.includeInNetWorth,
+      institution: row.institution,
+      coverageAmount: row.coverageAmount ? row.coverageAmount.toFixed(2) : null,
+      renewalDate: row.renewalDate ? row.renewalDate.toISOString() : null,
+      icon: row.icon,
+      note: row.note,
+      isArchived: row.isArchived,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
     };
   }
 }

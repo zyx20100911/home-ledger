@@ -1,8 +1,15 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { AccountType, FamilyRole } from '@prisma/client';
 import type { AuthResponseDTO, FamilyDTO, UserDTO } from '@home-ledger/shared';
 import * as bcrypt from 'bcryptjs';
+import type { AppEnv } from '@/config/env.validation';
 import { PrismaService } from '@/prisma/prisma.service';
 import type { LoginDto, RegisterDto } from './dto/auth.dto';
 import type { JwtPayload } from './types/auth-user.interface';
@@ -12,9 +19,20 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly configService: ConfigService<AppEnv, true>,
   ) {}
 
+  getPublicConfig(): { allowRegistration: boolean } {
+    return {
+      allowRegistration: this.configService.get('ALLOW_REGISTRATION', { infer: true }),
+    };
+  }
+
   async register(dto: RegisterDto): Promise<AuthResponseDTO> {
+    if (!this.configService.get('ALLOW_REGISTRATION', { infer: true })) {
+      throw new ForbiddenException('当前已关闭新用户注册，请联系家庭管理员');
+    }
+
     const email = dto.email.trim().toLowerCase();
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) {

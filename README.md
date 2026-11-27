@@ -24,10 +24,15 @@ home-ledger/
 │   ├── shared/              # 前后端与 H5 共享类型、Zod Schema、金额工具
 │   └── tsconfig/            # 共享 TypeScript 基础配置
 ├── docs/
-│   └── architecture.md      # 架构说明与 AI 友好开发规范
+│   ├── architecture.md      # 架构说明与 AI 友好开发规范
+│   └── self-hosting.md      # 家庭自托管 + Cloudflare Tunnel 远程访问部署指南
+├── deploy/                  # 生产容器化构建配置 (Dockerfile / Nginx)
+├── scripts/                 # 数据库双平台自动备份脚本
 ├── docker-compose.yml       # PostgreSQL 16 本地开发容器
+├── docker-compose.prod.yml  # 生产全栈自托管编排 (含 Cloudflare Tunnel)
 ├── pnpm-workspace.yaml
-└── .env.example
+├── .env.example
+└── .env.prod.example
 ```
 
 ## 快速开始
@@ -94,3 +99,10 @@ pnpm dev
 | `pnpm db:migrate`             | 执行 Prisma 数据库迁移           |
 | `pnpm db:seed`                | 初始化默认收支分类数据           |
 | `pnpm db:studio`              | 打开 Prisma 数据库可视化管理界面 |
+| `pnpm prod:up`                | 本地构建并启动生产全栈容器       |
+| `pnpm prod:tunnel`            | 启动生产容器与 Cloudflare Tunnel |
+| `pnpm prod:down`              | 停止并移除生产容器               |
+
+## 自托管与出门远程访问
+
+想将服务运行在家中电脑，并通过浏览器随时随地记账（无需购买云服务器），请查阅 [家庭自托管部署指南](docs/self-hosting.md)。
