@@ -1,0 +1,36 @@
+{
+  "name": "@home-ledger/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "家庭财务管理系统 Web 端 (Vue 3 + Vite + TypeScript + Tailwind CSS)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@home-ledger/shared": "workspace:*",
+    "axios": "^1.8.3",
+    "echarts": "^5.6.0",
+    "lucide-vue-next": "^1.0.0",
+    "naive-ui": "^2.41.0",
+    "pinia": "^3.0.1",
+    "vue": "^3.5.13",
+    "vue-echarts": "^7.0.3",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@home-ledger/tsconfig": "workspace:*",
+    "@tailwindcss/vite": "^4.0.14",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "tailwindcss": "^4.0.14",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.2",
+    "vitest": "^3.0.9",
+    "vue-tsc": "^2.2.8"
+  }
+}

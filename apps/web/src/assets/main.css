@@ -1,0 +1,14 @@
+@import 'tailwindcss';
+
+@layer base {
+  body {
+    font-family:
+      'Inter',
+      -apple-system,
+      BlinkMacSystemFont,
+      'PingFang SC',
+      'Hiragino Sans GB',
+      'Microsoft YaHei',
+      sans-serif;
+  }
+}

@@ -1,0 +1,217 @@
+// ===========================================
+// Home Ledger 家庭财务管理系统 - Prisma 数据模型
+// 数据库: PostgreSQL 16
+// 金额规范: 统一使用 Decimal(14, 2)，杜绝浮点精度误差
+// ===========================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- 枚举定义 ----------
+
+enum FamilyRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum AccountType {
+  CASH
+  BANK_CARD
+  ALIPAY
+  WECHAT
+  CREDIT_CARD
+  INVESTMENT
+  DEBT
+  OTHER
+}
+
+enum CategoryType {
+  EXPENSE
+  INCOME
+}
+
+enum TransactionType {
+  EXPENSE
+  INCOME
+  TRANSFER
+}
+
+enum BudgetPeriod {
+  MONTHLY
+  YEARLY
+}
+
+// ---------- 核心模型 ----------
+
+/// 用户表
+model User {
+  id           String         @id @default(cuid())
+  email        String         @unique
+  passwordHash String         @map("password_hash")
+  nickname     String
+  avatarUrl    String?        @map("avatar_url")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  memberships  FamilyMember[]
+  transactions Transaction[]
+
+  @@map("users")
+}
+
+/// 家庭账本空间（支持多家庭/独立账本隔离）
+model Family {
+  id          String         @id @default(cuid())
+  name        String
+  currency    String         @default("CNY")
+  description String?
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  members      FamilyMember[]
+  invites      FamilyInvite[]
+  accounts     Account[]
+  categories   Category[]
+  transactions Transaction[]
+  budgets      Budget[]
+
+  @@map("families")
+}
+
+/// 家庭邀请码（支持成员通过邀请码加入家庭账本）
+model FamilyInvite {
+  id          String     @id @default(cuid())
+  familyId    String     @map("family_id")
+  code        String     @unique
+  role        FamilyRole @default(MEMBER)
+  createdById String     @map("created_by_id")
+  expiresAt   DateTime   @map("expires_at")
+  maxUses     Int        @default(10) @map("max_uses")
+  usedCount   Int        @default(0) @map("used_count")
+  createdAt   DateTime   @default(now()) @map("created_at")
+
+  family Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
+
+  @@index([familyId])
+  @@map("family_invites")
+}
+
+/// 家庭成员关系与权限角色
+model FamilyMember {
+  id       String     @id @default(cuid())
+  familyId String     @map("family_id")
+  userId   String     @map("user_id")
+  role     FamilyRole @default(MEMBER)
+  joinedAt DateTime   @default(now()) @map("joined_at")
+
+  family Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([familyId, userId])
+  @@index([userId])
+  @@map("family_members")
+}
+
+/// 资金账户（储蓄卡、现金、支付宝、微信、信用卡、理财等）
+model Account {
+  id                String      @id @default(cuid())
+  familyId          String      @map("family_id")
+  name              String
+  type              AccountType
+  currency          String      @default("CNY")
+  balance           Decimal     @default(0) @db.Decimal(14, 2)
+  includeInNetWorth Boolean     @default(true) @map("include_in_net_worth")
+  icon              String?
+  note              String?
+  isArchived        Boolean     @default(false) @map("is_archived")
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+
+  family       Family        @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  transactions Transaction[] @relation("PrimaryAccount")
+  transfersIn  Transaction[] @relation("TargetAccount")
+
+  @@index([familyId, isArchived])
+  @@map("accounts")
+}
+
+/// 收支分类（支持系统预置 + 家庭自定义 + 二级分类）
+model Category {
+  id        String       @id @default(cuid())
+  familyId  String?      @map("family_id")
+  parentId  String?      @map("parent_id")
+  name      String
+  type      CategoryType
+  icon      String?
+  color     String?
+  sortOrder Int          @default(0) @map("sort_order")
+  isSystem  Boolean      @default(false) @map("is_system")
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  family       Family?       @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  parent       Category?     @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children     Category[]    @relation("CategoryHierarchy")
+  transactions Transaction[]
+  budgets      Budget[]
+
+  @@index([familyId, type])
+  @@map("categories")
+}
+
+/// 交易流水（支出、收入、账户间转账）
+model Transaction {
+  id          String          @id @default(cuid())
+  familyId    String          @map("family_id")
+  type        TransactionType
+  amount      Decimal         @db.Decimal(14, 2)
+  accountId   String          @map("account_id")
+  toAccountId String?         @map("to_account_id")
+  categoryId  String?         @map("category_id")
+  createdById String          @map("created_by_id")
+  occurredAt  DateTime        @map("occurred_at")
+  note        String?
+  tags        String[]        @default([])
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  family    Family    @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  account   Account   @relation("PrimaryAccount", fields: [accountId], references: [id], onDelete: Restrict)
+  toAccount Account?  @relation("TargetAccount", fields: [toAccountId], references: [id], onDelete: Restrict)
+  category  Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  createdBy User      @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([familyId, occurredAt(sort: Desc)])
+  @@index([familyId, type, occurredAt])
+  @@index([accountId])
+  @@index([categoryId])
+  @@map("transactions")
+}
+
+/// 预算配置（支持家庭总预算 & 分类预算）
+model Budget {
+  id         String       @id @default(cuid())
+  familyId   String       @map("family_id")
+  categoryId String?      @map("category_id")
+  period     BudgetPeriod @default(MONTHLY)
+  year       Int
+  month      Int?
+  amount     Decimal      @db.Decimal(14, 2)
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  family   Family    @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([familyId, categoryId, period, year, month])
+  @@index([familyId, year, month])
+  @@map("budgets")
+}

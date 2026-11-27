@@ -1,0 +1,44 @@
+{
+  "name": "home-ledger",
+  "version": "0.1.0",
+  "private": true,
+  "description": "家庭财务管理系统 Monorepo (Vue 3 + NestJS + Prisma + PostgreSQL)",
+  "packageManager": "pnpm@12.21.0",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @home-ledger/shared build && pnpm --parallel --filter @home-ledger/shared --filter @home-ledger/api --filter @home-ledger/web dev",
+    "dev:api": "pnpm --filter @home-ledger/shared build && pnpm --filter @home-ledger/api dev",
+    "dev:web": "pnpm --filter @home-ledger/shared build && pnpm --filter @home-ledger/web dev",
+    "build": "pnpm -r --if-present build",
+    "typecheck": "pnpm --filter @home-ledger/shared build && pnpm -r --if-present typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm --filter @home-ledger/shared build && pnpm -r --if-present test",
+    "clean": "pnpm -r --if-present clean && rm -rf node_modules",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f postgres",
+    "db:generate": "pnpm --filter @home-ledger/api prisma:generate",
+    "db:migrate": "dotenv -c -- pnpm --filter @home-ledger/api prisma:migrate",
+    "db:push": "dotenv -c -- pnpm --filter @home-ledger/api prisma:push",
+    "db:seed": "dotenv -c -- pnpm --filter @home-ledger/api prisma:seed",
+    "db:studio": "dotenv -c -- pnpm --filter @home-ledger/api prisma:studio"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.22.0",
+    "dotenv-cli": "^8.0.0",
+    "eslint": "^9.22.0",
+    "eslint-config-prettier": "^10.0.1",
+    "eslint-plugin-vue": "^10.0.0",
+    "globals": "^16.0.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.26.1",
+    "vue-eslint-parser": "^10.1.1"
+  }
+}
